@@ -95,7 +95,7 @@ map_name[ 'index' ] = 'map_value'
 
 GeneralDB SQL:
 ```sql
-map_name = mapfield.put('index','map_value')
+map_name = map_name.put('index','map_value') -- note, the method-calling syntax.
 ```
 
 #### Map-Literals
