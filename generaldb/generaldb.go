@@ -22,13 +22,12 @@ import "gopkg.in/src-d/go-vitess.v0/sqltypes"
 import "gopkg.in/src-d/go-vitess.v0/vt/proto/query"
 import "gopkg.in/src-d/go-mysql-server.v0/sql"
 import "fmt"
-import "github.com/a-mail-group/yoursql/generaldb/querier"
 import "io"
 
 var ESorry = fmt.Errorf("Sorry!")
 
 type Gateway struct{
-	B querier.Backend
+	B Backend
 }
 func (g *Gateway) NewConnection(c *mysql.Conn) {
 	c.ClientData = NewPerClient(g.B)
