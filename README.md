@@ -7,9 +7,9 @@ The software serves the MySQL wire protocol using the excelent [go-vitess](https
 
 # Subprojects:
 
-## `my2any`
+## my2any
 
-The `my2any` subproject is a MySQL to *Any* Gateway.
+The [my2any](my2any) subproject is a MySQL to *Any* Gateway.
 The Goal is to allow (almost) any MySQL client Software (like PHP application)
 to use PostgreSQL (or other RDBMSes), without intrusive modifications, such as
 switching from the `mysql` or `mysqli` PHP-library to the PostgreSQL client library.
@@ -18,9 +18,9 @@ switching from the `mysql` or `mysqli` PHP-library to the PostgreSQL client libr
 
 - PostgreSQL (converts MySQL's SQL-dialect to PostgreSQL's)
 
-## `generaldb`
+## generaldb
 
-The `generaldb` [generaldb](generaldb) subproject is a MySQL to NoSQL Gateway.
+The [generaldb](generaldb) subproject is a MySQL to NoSQL Gateway.
 The Goal was to implement (almost) full SQL query support to Apache Cassandra
 and other NoSQL databases. So users have the best of both world: Massive Fault
 tolerance and SQL-datamodel and Apis.
