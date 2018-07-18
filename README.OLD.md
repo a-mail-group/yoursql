@@ -1,44 +1,28 @@
 # yoursql
 Sorry, We don't have MySQL available, but we have ...
 
-... other databases.
+... PostgreSQL, or MS SQL Server, or InterBase, or Firebird, or MonetDB.
 
-The software serves the MySQL wire protocol using the excelent [go-vitess](https://github.com/src-d/go-vitess/) framework (well, vitess is a product and not a library, but who cares) and [go-mysql-server](https://github.com/src-d/go-mysql-server).
+## What this project is about.
 
-# Subprojects:
-
-## `my2any`
-
-The `my2any` subproject is a MySQL to *Any* Gateway.
+A MySQL to PostgreSQL/*Insert-Any-Other-RDBMS* Gateway.
 The Goal is to allow (almost) any MySQL client Software (like PHP application)
 to use PostgreSQL (or other RDBMSes), without intrusive modifications, such as
 switching from the `mysql` or `mysqli` PHP-library to the PostgreSQL client library.
 
-### Currently implemented:
+## What this software does.
 
-- PostgreSQL (converts MySQL's SQL-dialect to PostgreSQL's)
+The software serves the MySQL wire protocol using the excelent [go-vitess](https://github.com/src-d/go-vitess/) framework (well, vitess is a product and not a library, but who cares) and [go-mysql-server](https://github.com/src-d/go-mysql-server).
 
-## `generaldb`
+The SQL statements are parsed with the [vitess](https://github.com/src-d/go-vitess/)-parser and then translated from the MySQL dialect into the PostgreSQL dialect (other dialects can be implemented as plugins).
 
-The `generaldb` subproject is a MySQL to NoSQL Gateway.
-The Goal was to implement (almost) full SQL query support to Apache Cassandra
-and other NoSQL databases. So users have the best of both world: Massive Fault
-tolerance and SQL-datamodel and Apis.
-
-### Currently implemented:
-
-- Features
-	- Select queries, including joins.
-- Backends
-	- Apache Cassandra 3.0 or later.
-
-# Future Ideas
+## Future Ideas
 
 - Implementing adapters for other databases, that have a golang-[SQLDriver](https://github.com/golang/go/wiki/SQLDrivers), especially...
-	- ~~[N1QL](https://github.com/couchbase/go_n1ql), however, it differs strongly from the well known SQL behavoir.~~ No!
+	- [N1QL](https://github.com/couchbase/go_n1ql), however, it differs strongly from the well known SQL behavoir.
 	- [MonetDB](https://github.com/fajran/go-monetdb). Because it is a really impressive RDBMS.
 - Implementing adapters for NoSQL databases, such as...
-	- ~~Cassandra using [gocql](https://github.com/gocql/gocql), including a query rewriter to allow joins and sub-queries.~~ Done!
+	- Cassandra using [gocql](https://github.com/gocql/gocql), including a query rewriter to allow joins and sub-queries.
 	- [N1QL](https://github.com/couchbase/go_n1ql), and to emulate the SQL-Behavoir on it.
 	- MongoDB. This will require to do some hard work, translating SQL to MongoDB-queries.
 
