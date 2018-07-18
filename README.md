@@ -20,7 +20,7 @@ switching from the `mysql` or `mysqli` PHP-library to the PostgreSQL client libr
 
 ## `generaldb`
 
-The `generaldb` subproject is a MySQL to NoSQL Gateway.
+The `generaldb` [./generaldb] subproject is a MySQL to NoSQL Gateway.
 The Goal was to implement (almost) full SQL query support to Apache Cassandra
 and other NoSQL databases. So users have the best of both world: Massive Fault
 tolerance and SQL-datamodel and Apis.
