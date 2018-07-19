@@ -32,7 +32,7 @@ The `gdb.via` - annotation has multiple aliases:
 
 ## Backends
 
-- (cassdb)[cassdb] Cassanra 3.0+ binding using [gocql](https://github.com/gocql/gocql).
+- [cassdb](cassdb) Cassanra 3.0+ binding using [gocql](https://github.com/gocql/gocql).
 
 
 
