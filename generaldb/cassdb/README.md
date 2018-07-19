@@ -8,6 +8,8 @@ The plugin is developed with [gocql](https://github.com/gocql/gocql) and tested 
 
 cassdb-specific informations on update statements.
 
+the same rules apply for delete statements.
+
 ### Where-clauses
 
 Remember, Cassandra is not an RDBMS. Therefore updates are a little bit different that in MySQL or PostgreSQL.

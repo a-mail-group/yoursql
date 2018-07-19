@@ -17,9 +17,11 @@
 
 package cassdb
 
+import "github.com/gocql/gocql"
 import "gopkg.in/src-d/go-vitess.v0/vt/sqlparser"
 import "fmt"
 import "strings"
+import "github.com/a-mail-group/yoursql/generaldb"
 
 func updateFormatter(buf *sqlparser.TrackedBuffer, node sqlparser.SQLNode) {
 	switch v := node.(type) {
@@ -165,3 +167,106 @@ func (cql *CqlDB) PerformUpdate(ns, name string, upd *sqlparser.Update) (uint64,
 	qry.Release()
 	return 0,0,err
 }
+func (cql *CqlDB) PrepareUpdate(ns, name string, upd *sqlparser.Update) (generaldb.PreparedUpdate,error) {
+	if upd.Limit!=nil || len(upd.OrderBy)!=0 { return nil,fmt.Errorf("invalid syntax ") }
+	if upd.Where==nil { return nil,fmt.Errorf("invalid syntax ") }
+	buf := sqlparser.NewTrackedBuffer(updateFormatter)
+	buf.Myprintf("update %s set %v%v",fmt.Sprintf("%q",name),upd.Exprs,upd.Where)
+	qry := cql.ItsSession.Query(buf.String())
+	return &CqlPreparedUpdate{qry},nil
+}
+
+func (cql *CqlDB) PerformDelete(ns, name string, upd *sqlparser.Delete) (uint64,uint64,error) {
+	if upd.Limit!=nil || len(upd.OrderBy)!=0 { return 0,0,fmt.Errorf("invalid syntax ") }
+	if upd.Where==nil { return 0,0,fmt.Errorf("invalid syntax ") }
+	buf := sqlparser.NewTrackedBuffer(updateFormatter)
+	buf.Myprintf("delete from %s ",fmt.Sprintf("%q",name))
+	clauses := flatten(upd.Where.Expr)
+	
+	var others,pkc,cond []sqlparser.Expr
+	transact := true
+	
+	for _,clause := range clauses {
+		switch v := clause.(type) {
+		case *sqlparser.FuncExpr:
+			switch strings.ToLower(fmt.Sprintf("%v.%v",v.Qualifier,v.Name)) {
+			case ".row","cql.row":
+				for _,e := range v.Exprs {
+					ae,ok := e.(*sqlparser.AliasedExpr)
+					if !ok { continue }
+					pkc = append(pkc,ae.Expr)
+					break
+				}
+			case ".cond","cql.cond":
+				for _,e := range v.Exprs {
+					ae,ok := e.(*sqlparser.AliasedExpr)
+					if !ok { continue }
+					cond = append(cond,ae.Expr)
+					break
+				}
+			case ".anycase","cql.anycase":
+				transact = false
+			default:
+				others = append(others,clause)
+			}
+		default:
+			others = append(others,clause)
+		}
+	}
+	if len(others)!=0 {
+		if len(pkc)==0 {
+			pkc = others
+		} else if len(cond)==0 {
+			cond = others
+		} else {
+			cond = append(cond,others...)
+		}
+		others = nil
+	}
+	px := "where"
+	for _,clause := range pkc {
+		buf.Myprintf("%s %v ",px,clause)
+		px = "and"
+	}
+	if len(cond)!=0 {
+		px = "if"
+		for _,clause := range cond {
+			buf.Myprintf("%s %v ",px,clause)
+			px = "and"
+		}
+	} else if transact {
+		buf.Myprintf("if exists ")
+	}
+	
+	qry := cql.ItsSession.Query(buf.String())
+	err := qry.Exec()
+	qry.Release()
+	return 0,0,err
+}
+func (cql *CqlDB) PrepareDelete(ns, name string, upd *sqlparser.Delete) (generaldb.PreparedUpdate,error) {
+	if upd.Limit!=nil || len(upd.OrderBy)!=0 { return nil,fmt.Errorf("invalid syntax ") }
+	if upd.Where==nil { return nil,fmt.Errorf("invalid syntax ") }
+	buf := sqlparser.NewTrackedBuffer(updateFormatter)
+	buf.Myprintf("delete from %s %v",fmt.Sprintf("%q",name),upd.Where)
+	qry := cql.ItsSession.Query(buf.String())
+	return &CqlPreparedUpdate{qry},nil
+}
+
+
+type CqlPreparedUpdate struct{
+	qry *gocql.Query
+}
+var _ generaldb.PreparedUpdate = (*CqlPreparedUpdate)(nil)
+
+func (cql *CqlPreparedUpdate) Perform(i []interface{}) error {
+	if cql.qry==nil { return nil }
+	cql.qry.Bind(i...)
+	return cql.qry.Exec()
+}
+func (cql *CqlPreparedUpdate) Close() error {
+	if cql.qry==nil { return nil }
+	cql.qry.Release()
+	cql.qry = nil
+	return nil
+}
+

@@ -29,23 +29,43 @@ import "github.com/a-mail-group/yoursql/generaldb/querier"
 
 var ETodo error = fmt.Errorf("Todo")
 
+type PreparedUpdate interface{
+	Perform(i []interface{}) error
+	Close() error
+}
+
 type UpdateBackend interface{
 	PerformUpdate(ns, name string, upd *sqlparser.Update) (uint64,uint64,error) /* Rows-Affected, LastID, Error*/
+	PrepareUpdate(ns, name string, upd *sqlparser.Update) (PreparedUpdate,error)
+}
+
+type InsertBackend interface{
+	PerformInsert(ns, name string, ins *sqlparser.Insert) (uint64,uint64,error) /* Rows-Affected, LastID, Error*/
+}
+
+type DeleteBackend interface{
+	PerformDelete(ns, name string, del *sqlparser.Delete) (uint64,uint64,error) /* Rows-Affected, LastID, Error*/
+	PrepareDelete(ns, name string, del *sqlparser.Delete) (PreparedUpdate,error)
 }
 
 /*
 This interface is composed of smaller interfaces.
-Instead of trying to implement all of them, implementors should focus on the
-sub-interfaces and use CreateBackend!
+
+Itr is subject to changes, so instead of trying to implement all of them,
+implementors should focus on the sub-interfaces and use CreateBackend() !
 */
 type Backend interface{
 	querier.Backend
 	UpdateBackend
+	InsertBackend
+	DeleteBackend
 }
 
 type BackendImpl struct{
 	QueryBackend querier.Backend
 	UpdateBackend
+	InsertBackend
+	DeleteBackend
 }
 func (b *BackendImpl) GetTable(ns, name string) (querier.BackendTable, error) {
 	if b.QueryBackend==nil { return nil,ETodo }
@@ -55,12 +75,30 @@ func (b *BackendImpl) PerformUpdate(ns, name string, upd *sqlparser.Update) (uin
 	if b.UpdateBackend==nil { return 0,0,ETodo }
 	return b.UpdateBackend.PerformUpdate(ns,name,upd)
 }
+func (b *BackendImpl) PrepareUpdate(ns, name string, upd *sqlparser.Update) (PreparedUpdate,error) {
+	if b.UpdateBackend==nil { return nil,ETodo }
+	return b.UpdateBackend.PrepareUpdate(ns,name,upd)
+}
+func (b *BackendImpl) PerformInsert(ns, name string, ins *sqlparser.Insert) (uint64,uint64,error) {
+	if b.InsertBackend==nil { return 0,0,ETodo }
+	return b.InsertBackend.PerformInsert(ns,name,ins)
+}
+func (b *BackendImpl) PerformDelete(ns, name string, del *sqlparser.Delete) (uint64,uint64,error) {
+	if b.DeleteBackend==nil { return 0,0,ETodo }
+	return b.DeleteBackend.PerformDelete(ns,name,del)
+}
+func (b *BackendImpl) PrepareDelete(ns, name string, del *sqlparser.Delete) (PreparedUpdate,error) {
+	if b.DeleteBackend==nil { return nil,ETodo }
+	return b.DeleteBackend.PrepareDelete(ns,name,del)
+}
 
 func CreateBackend(i interface{}) Backend {
 	if b,ok := i.(Backend) ; ok { return b }
 	b := &BackendImpl{}
 	if e,ok := i.(querier.Backend); ok { b.QueryBackend = e }
 	if e,ok := i.(UpdateBackend); ok { b.UpdateBackend = e }
+	if e,ok := i.(InsertBackend); ok { b.InsertBackend = e }
+	if e,ok := i.(DeleteBackend); ok { b.DeleteBackend = e }
 	return b
 }
 
@@ -91,12 +129,35 @@ func (p *PerClient) Query(def,query string) (*Result, error) {
 	if err!=nil { return nil,err }
 	
 	switch pv {
+	case sqlparser.StmtInsert,sqlparser.StmtReplace:
+		ins,ok := stmt.(*sqlparser.Insert)
+		if !ok { return nil,ESorry }
+		
+		_,ok = ins.Rows.(sqlparser.Values)
+		if !ok { return nil,fmt.Errorf("unsupported syntax: expected values(...), got %s",sqlparser.String(ins.Rows)) }
+		
+		name := ins.Table.Name.String()
+		ns := ins.Table.Qualifier.String()
+		if ns=="" { ns = def }
+		
+		ra,id,err := p.b.PerformInsert(ns, name, ins)
+		if err!=nil { return nil,err }
+		
+		rs := new(Result)
+		rs.RowsAffected = ra
+		rs.LastInsertId = id
+		return rs,nil
 	case sqlparser.StmtUpdate:
 		upd,ok := stmt.(*sqlparser.Update)
 		if !ok { return nil,ESorry }
 		
-		if len(upd.TableExprs)>1 { return nil,fmt.Errorf("too many tables") }
 		if len(upd.TableExprs)<1 { return nil,fmt.Errorf("table is missing") }
+		
+		if updateIsScan(upd) {
+			return p.specialUpdate(def,upd)
+		}
+		
+		if len(upd.TableExprs)>1 { return nil,fmt.Errorf("too many tables") }
 		te,ok := upd.TableExprs[0].(*sqlparser.AliasedTableExpr)
 		if !ok { return nil,fmt.Errorf("invalid table expression %s",sqlparser.String(upd.TableExprs[0])) }
 		
@@ -108,7 +169,36 @@ func (p *PerClient) Query(def,query string) (*Result, error) {
 		
 		name := tn.Name.String()
 		
-		ra,id,err := p.b.PerformUpdate(def, name, upd)
+		ra,id,err := p.b.PerformUpdate(ns, name, upd)
+		if err!=nil { return nil,err }
+		
+		rs := new(Result)
+		rs.RowsAffected = ra
+		rs.LastInsertId = id
+		return rs,nil
+	case sqlparser.StmtDelete:
+		upd,ok := stmt.(*sqlparser.Delete)
+		if !ok { return nil,ESorry }
+		
+		if len(upd.TableExprs)<1 { return nil,fmt.Errorf("table is missing") }
+		
+		if updateIsScan(upd) {
+			return p.specialDelete(def,upd)
+		}
+		
+		if len(upd.TableExprs)>1 { return nil,fmt.Errorf("too many tables") }
+		te,ok := upd.TableExprs[0].(*sqlparser.AliasedTableExpr)
+		if !ok { return nil,fmt.Errorf("invalid table expression %s",sqlparser.String(upd.TableExprs[0])) }
+		
+		tn,ok := te.Expr.(sqlparser.TableName)
+		if !ok { return nil,fmt.Errorf("invalid table expression %s",sqlparser.String(te.Expr)) }
+		
+		ns := tn.Qualifier.String()
+		if ns=="" { ns = def }
+		
+		name := tn.Name.String()
+		
+		ra,id,err := p.b.PerformDelete(ns, name, upd)
 		if err!=nil { return nil,err }
 		
 		rs := new(Result)
