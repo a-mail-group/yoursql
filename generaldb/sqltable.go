@@ -48,6 +48,10 @@ type DeleteBackend interface{
 	PrepareDelete(ns, name string, del *sqlparser.Delete) (PreparedUpdate,error)
 }
 
+type DDLBackend interface{
+	PerformDDL(ns, name string, ddl *sqlparser.DDL) (uint64,uint64,error)
+}
+
 /*
 This interface is composed of smaller interfaces.
 
@@ -59,6 +63,7 @@ type Backend interface{
 	UpdateBackend
 	InsertBackend
 	DeleteBackend
+	DDLBackend
 }
 
 type BackendImpl struct{
@@ -66,6 +71,7 @@ type BackendImpl struct{
 	UpdateBackend
 	InsertBackend
 	DeleteBackend
+	DDLBackend
 }
 func (b *BackendImpl) GetTable(ns, name string) (querier.BackendTable, error) {
 	if b.QueryBackend==nil { return nil,ETodo }
@@ -91,6 +97,50 @@ func (b *BackendImpl) PrepareDelete(ns, name string, del *sqlparser.Delete) (Pre
 	if b.DeleteBackend==nil { return nil,ETodo }
 	return b.DeleteBackend.PrepareDelete(ns,name,del)
 }
+func (b *BackendImpl) PerformDDL(ns, name string, ddl *sqlparser.DDL) (uint64,uint64,error) {
+	if b.DDLBackend==nil { return 0,0,ETodo }
+	return b.DDLBackend.PerformDDL(ns,name,ddl)
+}
+var _ Backend = (*BackendImpl)(nil)
+
+type BackendSelector interface{
+	SelectBackend(ns, name string) (Backend,bool)
+}
+type BackendWithSelector struct{
+	Default  Backend
+	Selector BackendSelector
+}
+func (b *BackendWithSelector) get(ns,name string) Backend {
+	be,ok := b.Selector.SelectBackend(ns,name)
+	if ok { return be }
+	return b.Default
+}
+func (b *BackendWithSelector) GetTable(ns, name string) (querier.BackendTable, error) {
+	return b.get(ns,name).GetTable(ns,name)
+}
+func (b *BackendWithSelector) PerformUpdate(ns, name string, upd *sqlparser.Update) (uint64,uint64,error) {
+	return b.get(ns,name).PerformUpdate(ns,name,upd)
+}
+func (b *BackendWithSelector) PrepareUpdate(ns, name string, upd *sqlparser.Update) (PreparedUpdate,error) {
+	return b.get(ns,name).PrepareUpdate(ns,name,upd)
+}
+func (b *BackendWithSelector) PerformInsert(ns, name string, ins *sqlparser.Insert) (uint64,uint64,error) {
+	return b.get(ns,name).PerformInsert(ns,name,ins)
+}
+func (b *BackendWithSelector) PerformDelete(ns, name string, del *sqlparser.Delete) (uint64,uint64,error) {
+	return b.get(ns,name).PerformDelete(ns,name,del)
+}
+func (b *BackendWithSelector) PrepareDelete(ns, name string, del *sqlparser.Delete) (PreparedUpdate,error) {
+	return b.get(ns,name).PrepareDelete(ns,name,del)
+}
+func (b *BackendWithSelector) PerformDDL(ns, name string, ddl *sqlparser.DDL) (uint64,uint64,error) {
+	return b.get(ns,name).PerformDDL(ns,name,ddl)
+}
+
+var _ Backend = (*BackendWithSelector)(nil)
+
+type DatabaseMap map[string]Backend
+func (dbm DatabaseMap) SelectBackend(ns, name string) (b Backend,ok bool) { b,ok = dbm[ns]; return  }
 
 func CreateBackend(i interface{}) Backend {
 	if b,ok := i.(Backend) ; ok { return b }
@@ -99,6 +149,7 @@ func CreateBackend(i interface{}) Backend {
 	if e,ok := i.(UpdateBackend); ok { b.UpdateBackend = e }
 	if e,ok := i.(InsertBackend); ok { b.InsertBackend = e }
 	if e,ok := i.(DeleteBackend); ok { b.DeleteBackend = e }
+	if e,ok := i.(DDLBackend); ok { b.DDLBackend = e }
 	return b
 }
 
@@ -129,6 +180,28 @@ func (p *PerClient) Query(def,query string) (*Result, error) {
 	if err!=nil { return nil,err }
 	
 	switch pv {
+	case sqlparser.StmtDDL:
+		ddl,ok := stmt.(*sqlparser.DDL)
+		if !ok { return nil,ESorry }
+		var ns,name string
+		switch ddl.Action {
+		case sqlparser.CreateStr:
+			name = ddl.NewName.Name.String()
+			ns = ddl.NewName.Qualifier.String()
+		default:
+			name = ddl.Table.Name.String()
+			ns = ddl.Table.Qualifier.String()
+		}
+		
+		if ns=="" { ns = def }
+		
+		ra,id,err := p.b.PerformDDL(ns,name,ddl)
+		if err!=nil { return nil,err }
+		
+		rs := new(Result)
+		rs.RowsAffected = ra
+		rs.LastInsertId = id
+		return rs,nil
 	case sqlparser.StmtInsert,sqlparser.StmtReplace:
 		ins,ok := stmt.(*sqlparser.Insert)
 		if !ok { return nil,ESorry }
